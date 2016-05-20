@@ -172,25 +172,32 @@ public:
         }
     }
 
+    struct Wrapper
+    {
+        size_t size;
+        char *buffer;
+    };
+
     virtual void
     Execute(const ExecutionProgress &progress)
     {
         std::cout << "execute" << std::endl;
-        char buffer[1600];
-        size_t numbytes;
+        Wrapper wrapper;
+        wrapper.buffer = new char[1600];
         while (true) {
-            numbytes = recvfrom(sockfd, buffer, 1600, 0, NULL, NULL);
-            progress.Send(buffer, numbytes);
+            wrapper.size = recvfrom(sockfd, wrapper.buffer, 1600, 0, NULL, NULL);
+            progress.Send(reinterpret_cast<char*>(&wrapper), sizeof(wrapper));
         }
     }
 
     virtual void
-    HandleProgressCallback(const char *data, size_t size)
+    HandleProgressCallback(const char *data, size_t)
     {
-        assert(data);
-        assert(size);
+        const Wrapper *wrapper = reinterpret_cast<const Wrapper *>(data);
+        assert(wrapper->buffer);
+        assert(wrapper->size);
         Nan::HandleScope scope;
-        v8::Local<v8::Value> argv[] = { Nan::CopyBuffer(data, size).ToLocalChecked() };
+        v8::Local<v8::Value> argv[] = { Nan::CopyBuffer(wrapper->buffer, wrapper->size).ToLocalChecked() };
         callback->Call(1, argv);
     }
 
