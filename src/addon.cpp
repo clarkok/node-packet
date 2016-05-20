@@ -13,6 +13,7 @@
 #include <iostream>
 #include <node.h>
 #include <nan.h>
+#include <cstdio>
 
 namespace node_packet {
 
@@ -43,22 +44,28 @@ struct Exception : public std::exception
 static inline void
 parse_mac(const char *literal, char *buffer)
 {
-    *buffer++ = (hex2num(literal[0]) << 16) + hex2num(literal[1]);
+    std::printf("%.17s ->", literal);
+
+    buffer[0] = (hex2num(literal[0]) << 4) + hex2num(literal[1]);
     literal += 3;
-    *buffer++ = (hex2num(literal[0]) << 16) + hex2num(literal[1]);
+    buffer[1] = (hex2num(literal[0]) << 4) + hex2num(literal[1]);
     literal += 3;
-    *buffer++ = (hex2num(literal[0]) << 16) + hex2num(literal[1]);
+    buffer[2] = (hex2num(literal[0]) << 4) + hex2num(literal[1]);
     literal += 3;
-    *buffer++ = (hex2num(literal[0]) << 16) + hex2num(literal[1]);
+    buffer[3] = (hex2num(literal[0]) << 4) + hex2num(literal[1]);
     literal += 3;
-    *buffer++ = (hex2num(literal[0]) << 16) + hex2num(literal[1]);
+    buffer[4] = (hex2num(literal[0]) << 4) + hex2num(literal[1]);
     literal += 3;
-    *buffer++ = (hex2num(literal[0]) << 16) + hex2num(literal[1]);
-    literal += 3;
+    buffer[5] = (hex2num(literal[0]) << 4) + hex2num(literal[1]);
+
+    for (int i = 0; i < 6; ++i) {
+        std::printf(" %x", buffer[i]);
+    }
+    std::printf("\n");
 }
 
 static inline int
-send_raw_packet(const char *if_name, const char *content, size_t length)
+send_raw_packet(const char *if_name, const char *dst_mac, const char *content, size_t length)
 {
     // open socket
     int sockfd = socket(AF_PACKET, SOCK_RAW, IPPROTO_RAW);
@@ -89,7 +96,7 @@ send_raw_packet(const char *if_name, const char *content, size_t length)
     struct ether_header *header = reinterpret_cast<struct ether_header *>(buffer);
 
     memcpy(header->ether_shost, if_mac.ifr_hwaddr.sa_data, 6);
-    memset(header->ether_dhost, 0xFFu, 6);
+    memcpy(header->ether_dhost, dst_mac, 6);
     header->ether_type = htons(ETH_P_IP);
     memcpy(buffer + sizeof(ether_header), content, length);
 
@@ -97,7 +104,7 @@ send_raw_packet(const char *if_name, const char *content, size_t length)
     sockaddr_ll address;
     address.sll_ifindex = if_idx.ifr_ifindex;
     address.sll_halen = ETH_ALEN;
-    memset(address.sll_addr, 0xFFu, 6);
+    memcpy(address.sll_addr, dst_mac, 6);
 
     // send
     return sendto(
@@ -196,13 +203,13 @@ send(const FunctionCallbackInfo<Value> &args)
 {
     Isolate *isolate = args.GetIsolate();
 
-    if (args.Length() < 2) {
+    if (args.Length() < 3) {
         isolate->ThrowException(v8::Exception::TypeError(
             String::NewFromUtf8(isolate, "Wrong number of arguments, need 3")));
         return;
     }
 
-    if (!args[0]->IsString()) {
+    if (!args[0]->IsString() || !args[1]->IsString()) {
         isolate->ThrowException(v8::Exception::TypeError(
             String::NewFromUtf8(isolate, "Wrong argument type")));
         return;
@@ -212,8 +219,15 @@ send(const FunctionCallbackInfo<Value> &args)
     Nan::DecodeWrite(if_name, IFNAMSIZ - 1, args[0], Nan::Encoding::UTF8);
     if_name[args[0]->ToString(isolate)->Length()] = '\0';
 
+    char mac_literal[18];
+    Nan::DecodeWrite(mac_literal, 17, args[1], Nan::Encoding::UTF8);
+    mac_literal[args[1]->ToString(isolate)->Length()] = '\0';
+
+    char dst_mac[6];
+    parse_mac(mac_literal, dst_mac);
+
     try {
-        auto result = send_raw_packet(if_name, node::Buffer::Data(args[1]), node::Buffer::Length(args[1]));
+        auto result = send_raw_packet(if_name, dst_mac, node::Buffer::Data(args[2]), node::Buffer::Length(args[2]));
         args.GetReturnValue().Set(Number::New(isolate, result));
     }
     catch (const Exception &e) {
