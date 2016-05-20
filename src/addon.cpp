@@ -45,6 +45,7 @@ send(const FunctionCallbackInfo<Value> &args)
 
     char if_name[IFNAMSIZ];
     Nan::DecodeWrite(if_name, IFNAMSIZ - 1, args[0], Nan::Encoding::UTF8);
+    if_name[args[0]->ToString(isolate)->Length()] = '\0';
 
     char dst_mac[6];
     char buffer[18];
