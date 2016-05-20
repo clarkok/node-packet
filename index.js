@@ -2,8 +2,8 @@
 
 let addon = require('./build/Release/addon.node');
 
-exports.send = function (iface, mac, content) {
-    return addon.send(iface + '', mac + '', Buffer.from(content));
+exports.send = function (iface, content) {
+    return addon.send(iface + '', Buffer.from(content));
 }
 
 exports.listen = function (iface, callback) {
