@@ -14,6 +14,8 @@
 #include <node.h>
 #include <nan.h>
 #include <cstdio>
+#include <map>
+#include <memory>
 
 namespace node_packet {
 
@@ -38,14 +40,21 @@ struct Exception : public std::exception
     { return _what.c_str(); }
 };
 
+struct Sender
+{
+    int sockfd;
+    struct ifreq if_idx;
+    struct ifreq if_mac;
+};
+
+std::map<std::string, std::unique_ptr<Sender> > *socket_map;
+
 #define hex2num(c)  \
     (std::isdigit(c) ? (c - '0') : (std::tolower(c) - 'a' + 10))
 
 static inline void
 parse_mac(const char *literal, char *buffer)
 {
-    std::printf("%.17s ->", literal);
-
     buffer[0] = (hex2num(literal[0]) << 4) + hex2num(literal[1]);
     literal += 3;
     buffer[1] = (hex2num(literal[0]) << 4) + hex2num(literal[1]);
@@ -57,58 +66,65 @@ parse_mac(const char *literal, char *buffer)
     buffer[4] = (hex2num(literal[0]) << 4) + hex2num(literal[1]);
     literal += 3;
     buffer[5] = (hex2num(literal[0]) << 4) + hex2num(literal[1]);
-
-    for (int i = 0; i < 6; ++i) {
-        std::printf(" %x", buffer[i]);
-    }
-    std::printf("\n");
 }
 
 static inline int
 send_raw_packet(const char *if_name, const char *dst_mac, const char *content, size_t length)
 {
-    // open socket
-    int sockfd = socket(AF_PACKET, SOCK_RAW, IPPROTO_RAW);
-    if (sockfd == -1) {
-        throw Exception("cannot open socket");
-    }
+    Sender *sender = nullptr;;
 
-    // get index
-    struct ifreq if_idx;
-    memset(&if_idx, 0, sizeof(struct ifreq));
-    strncpy(if_idx.ifr_name, if_name, IFNAMSIZ - 1);
-    if (ioctl(sockfd, SIOCGIFINDEX, &if_idx) < 0) {
-        std::cout << explain_ioctl(sockfd, SIOCGIFINDEX, &if_idx) << std::endl;
-        throw Exception("cannot get index of interface");
-    }
+    if (socket_map->find(if_name) == socket_map->end()) {
+        socket_map->emplace(
+            std::string(if_name),
+            std::unique_ptr<Sender>(new Sender())
+        );
 
-    // get mac
-    struct ifreq if_mac;
-    memset(&if_mac, 0, sizeof(struct ifreq));
-    strncpy(if_mac.ifr_name, if_name, IFNAMSIZ - 1);
-    if (ioctl(sockfd, SIOCGIFHWADDR, &if_mac) < 0) {
-        std::cout << explain_ioctl(sockfd, SIOCGIFINDEX, &if_idx) << std::endl;
-        throw Exception("cannot get address of interface");
+        sender = socket_map->at(if_name).get();
+
+        // open socket
+        sender->sockfd = socket(AF_PACKET, SOCK_RAW, IPPROTO_RAW);
+        if (sender->sockfd == -1) {
+            throw Exception("cannot open socket");
+        }
+
+        // get index
+        memset(&sender->if_idx, 0, sizeof(struct ifreq));
+        strncpy(sender->if_idx.ifr_name, if_name, IFNAMSIZ - 1);
+        if (ioctl(sender->sockfd, SIOCGIFINDEX, &sender->if_idx) < 0) {
+            std::cout << explain_ioctl(sender->sockfd, SIOCGIFINDEX, &sender->if_idx) << std::endl;
+            throw Exception("cannot get index of interface");
+        }
+
+        // get mac
+        memset(&sender->if_mac, 0, sizeof(struct ifreq));
+        strncpy(sender->if_mac.ifr_name, if_name, IFNAMSIZ - 1);
+        if (ioctl(sender->sockfd, SIOCGIFHWADDR, &sender->if_mac) < 0) {
+            std::cout << explain_ioctl(sender->sockfd, SIOCGIFINDEX, &sender->if_idx) << std::endl;
+            throw Exception("cannot get address of interface");
+        }
+    }
+    else {
+        sender = socket_map->at(if_name).get();
     }
 
     // construct Ethernet header
     uint8_t buffer[length + 16];
     struct ether_header *header = reinterpret_cast<struct ether_header *>(buffer);
 
-    memcpy(header->ether_shost, if_mac.ifr_hwaddr.sa_data, 6);
+    memcpy(header->ether_shost, sender->if_mac.ifr_hwaddr.sa_data, 6);
     memcpy(header->ether_dhost, dst_mac, 6);
     header->ether_type = htons(ETH_P_IP);
     memcpy(buffer + sizeof(ether_header), content, length);
 
     // config address
     sockaddr_ll address;
-    address.sll_ifindex = if_idx.ifr_ifindex;
+    address.sll_ifindex = sender->if_idx.ifr_ifindex;
     address.sll_halen = ETH_ALEN;
     memcpy(address.sll_addr, dst_mac, 6);
 
     // send
     return sendto(
-        sockfd,
+        sender->sockfd,
         buffer,
         length + 16,
         0,
@@ -183,12 +199,6 @@ public:
     virtual void
     WorkComplete()
     { }
-};
-
-class AsyncPacketTranreceiver : public Nan::AsyncWorker
-{
-protected:
-
 };
 
 void
@@ -272,6 +282,7 @@ listen(const FunctionCallbackInfo<Value> &args)
 void
 init(Local<Object> exports)
 {
+    socket_map = new std::map<std::string, std::unique_ptr<Sender> >();
     NODE_SET_METHOD(exports, "hello", hello);
     NODE_SET_METHOD(exports, "send", send);
     NODE_SET_METHOD(exports, "listen", listen);
