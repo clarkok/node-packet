@@ -68,10 +68,43 @@ send(const FunctionCallbackInfo<Value> &args)
 }
 
 void
+listen(const FunctionCallbackInfo<Value> &args)
+{
+    Isolate *isolate = args.GetIsolate();
+
+    if (args.Length() < 2) {
+        isolate->ThrowException(v8::Exception::TypeError(
+            String::NewFromUtf8(isolate, "Wrong number of arguments, need 2")));
+        return;
+    }
+
+    if (!args[0]->IsString()) {
+        isolate->ThrowException(v8::Exception::TypeError(
+            String::NewFromUtf8(isolate, "Wrong argument type")));
+        return;
+    }
+
+    char if_name[IFNAMSIZ];
+    Nan::DecodeWrite(if_name, IFNAMSIZ - 1, args[0], Nan::Encoding::UTF8);
+    if_name[args[0]->ToString(isolate)->Length()] = '\0';
+
+    try {
+        Nan::AsyncQueueWorker(new Listener(if_name, new Nan::Callback(args[1].As<v8::Function>())));
+        args.GetReturnValue().Set(v8::Undefined(isolate));
+    }
+    catch (const Exception &e) {
+        isolate->ThrowException(v8::Exception::Error(
+            String::NewFromUtf8(isolate, e.what())));
+        return;
+    }
+}
+
+void
 init(Local<Object> exports)
 {
     NODE_SET_METHOD(exports, "hello", hello);
     NODE_SET_METHOD(exports, "send", send);
+    NODE_SET_METHOD(exports, "listen", listen);
 }
 
 NODE_MODULE(addon, init)

@@ -15,6 +15,9 @@
 #include <cctype>
 #include <iostream>
 
+#include <nan.h>
+#include <node.h>
+
 namespace node_packet {
 
 struct Exception : public std::exception
@@ -73,6 +76,7 @@ send_raw_packet(const char *if_name, const char *dst_mac, const char *content, s
     memset(&if_mac, 0, sizeof(struct ifreq));
     strncpy(if_mac.ifr_name, if_name, IFNAMSIZ - 1);
     if (ioctl(sockfd, SIOCGIFHWADDR, &if_mac) < 0) {
+        std::cout << explain_ioctl(sockfd, SIOCGIFINDEX, &if_idx) << std::endl;
         throw Exception("cannot get address of interface");
     }
 
@@ -101,6 +105,74 @@ send_raw_packet(const char *if_name, const char *dst_mac, const char *content, s
         sizeof(struct sockaddr_ll)
     );
 }
+
+class Listener : public Nan::AsyncProgressWorker
+{
+    int sockfd;
+
+protected:
+    virtual void
+    HandleOKCallback()
+    { }
+
+    virtual void
+    HandleErrorCallback()
+    { }
+
+    using Nan::AsyncProgressWorker::ExecutionProgress;
+
+public:
+    Listener(const char *if_name, Nan::Callback *callback)
+        : Nan::AsyncProgressWorker(callback)
+    {
+        sockfd = socket(PF_PACKET, SOCK_RAW, htons(0x0800));
+        if (sockfd == -1) {
+            throw Exception("cannot open socket");
+        }
+
+        struct ifreq ifopts;
+        strncpy(ifopts.ifr_name, if_name, IFNAMSIZ - 1);
+        ioctl(sockfd, SIOCGIFFLAGS, &ifopts);
+        ifopts.ifr_flags |= IFF_PROMISC;
+        ioctl(sockfd, SIOCGIFFLAGS, &ifopts);
+
+        int sockopt;
+        if (setsockopt(sockfd, SOL_SOCKET, SO_REUSEADDR, &sockopt, sizeof(sockopt)) == -1) {
+            throw Exception("cannot set sockopt");
+        }
+        if (setsockopt(sockfd, SOL_SOCKET, SO_BINDTODEVICE, if_name, IFNAMSIZ - 1) == -1) {
+            throw Exception("cannot bind to device");
+        }
+    }
+
+    virtual void
+    Execute(const ExecutionProgress &progress)
+    {
+        std::cout << "execute" << std::endl;
+        char buffer[1600];
+        size_t numbytes;
+        while (true) {
+            numbytes = recvfrom(sockfd, buffer, 1600, 0, NULL, NULL);
+            progress.Send(buffer, numbytes);
+        }
+    }
+
+    virtual void
+    HandleProgressCallback(const char *data, size_t size)
+    {
+        Nan::HandleScope scope;
+        v8::Local<v8::Value> argv[] = { Nan::CopyBuffer(data, size).ToLocalChecked() };
+        callback->Call(1, argv);
+    }
+
+    virtual void
+    Destroy()
+    { }
+
+    virtual void
+    WorkComplete()
+    { }
+};
 
 }
 
