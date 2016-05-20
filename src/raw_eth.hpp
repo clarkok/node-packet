@@ -86,7 +86,7 @@ send_raw_packet(const char *if_name, const char *dst_mac, const char *content, s
 
     memcpy(header->ether_shost, if_mac.ifr_hwaddr.sa_data, 6);
     memcpy(header->ether_dhost, dst_mac, 6);
-    header->ether_type = htons(ETH_P_IP);
+    header->ether_type = htons(0x0008);
     memcpy(buffer + sizeof(ether_header), content, length);
 
     // config address
@@ -125,7 +125,7 @@ public:
     Listener(const char *if_name, Nan::Callback *callback)
         : Nan::AsyncProgressWorker(callback)
     {
-        sockfd = socket(PF_PACKET, SOCK_RAW, htons(0x0800));
+        sockfd = socket(PF_PACKET, SOCK_RAW, htons(0x0008));
         if (sockfd == -1) {
             throw Exception("cannot open socket");
         }
