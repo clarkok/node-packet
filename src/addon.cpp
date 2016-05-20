@@ -152,7 +152,7 @@ public:
     Listener(const char *if_name, Nan::Callback *callback)
         : Nan::AsyncProgressWorker(callback)
     {
-        sockfd = socket(PF_PACKET, SOCK_RAW, htons(ETH_P_IP));
+        sockfd = socket(AF_PACKET, SOCK_RAW, htons(ETH_P_ALL));
         if (sockfd == -1) {
             throw Exception("cannot open socket");
         }
