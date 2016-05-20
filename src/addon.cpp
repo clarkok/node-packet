@@ -187,6 +187,8 @@ public:
     virtual void
     HandleProgressCallback(const char *data, size_t size)
     {
+        assert(data);
+        assert(size);
         Nan::HandleScope scope;
         v8::Local<v8::Value> argv[] = { Nan::CopyBuffer(data, size).ToLocalChecked() };
         callback->Call(1, argv);
