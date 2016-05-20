@@ -7,6 +7,9 @@
             "cflags_cc!" : [ "-fno-exceptions" ],
             "include_dirs" : [
                 "<!(node -e \"require('nan')\")"
+            ],
+            "libraries" : [
+                "-lexplain"
             ]
         }
     ]

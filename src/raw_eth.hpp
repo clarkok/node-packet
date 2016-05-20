@@ -6,12 +6,14 @@
 #include <cstring>
 #include <cstdlib>
 #include <sys/ioctl.h>
+#include <libexplain/ioctl.h>
 #include <sys/socket.h>
 #include <net/if.h>
 #include <netinet/ether.h>
 #include <string>
 #include <array>
 #include <cctype>
+#include <iostream>
 
 namespace node_packet {
 
@@ -62,6 +64,7 @@ send_raw_packet(const char *if_name, const char *dst_mac, const char *content, s
     memset(&if_idx, 0, sizeof(struct ifreq));
     strncpy(if_idx.ifr_name, if_name, IFNAMSIZ - 1);
     if (ioctl(sockfd, SIOCGIFINDEX, &if_idx) < 0) {
+        std::cout << explain_ioctl(sockfd, SIOCGIFINDEX, &if_idx) << std::endl;
         throw Exception("cannot get index of interface");
     }
 
